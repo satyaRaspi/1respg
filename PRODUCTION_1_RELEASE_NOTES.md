@@ -68,3 +68,11 @@ chmod +x clean_start_mac.sh
 - `public_upload_links` is now created before `public_mcq_results`.
 - This resolves PostgreSQL foreign-key validation failure where `public_mcq_results.public_link_id` referenced `public_upload_links(id)` before that table existed.
 - Railway healthcheck should now reach `/api/health` after deployment instead of failing during container startup.
+
+
+## Production 1.3 Railway PORT Fix
+
+- Fixed Railway healthcheck timeout caused by the Docker container binding only to port 8000.
+- Dockerfile now uses Railway's runtime `PORT` variable:
+  `uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}`
+- Local Docker runs still default to port 8000 if `PORT` is not set.
