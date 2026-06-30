@@ -60,3 +60,11 @@ chmod +x clean_start_mac.sh
 - Clicking a demand row opens a read-only client details panel before any edit.
 - Demand edit form now shows client, project, domain, location, work mode, rate, cost, start date and duration as read-only context.
 - Only operational demand fields such as role title, required skills, priority, status, positions and role definition remain editable.
+
+
+## Production 1.2 PostgreSQL Table Creation Order Fix
+
+- Fixed Railway/PostgreSQL startup crash during `init_db()`.
+- `public_upload_links` is now created before `public_mcq_results`.
+- This resolves PostgreSQL foreign-key validation failure where `public_mcq_results.public_link_id` referenced `public_upload_links(id)` before that table existed.
+- Railway healthcheck should now reach `/api/health` after deployment instead of failing during container startup.

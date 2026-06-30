@@ -31,7 +31,7 @@ from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 APP_NAME = "1Resource"
-APP_VERSION = "Production 1.1"
+APP_VERSION = "Production 1.2"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
@@ -508,6 +508,25 @@ def init_db() -> None:
                 FOREIGN KEY(demand_id) REFERENCES demand_requests(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS public_upload_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT UNIQUE NOT NULL,
+                role_title TEXT,
+                role_definition TEXT,
+                candidate_id INTEGER,
+                demand_id INTEGER,
+                include_mcq INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT,
+                expires_at TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                revoked_at TEXT,
+                revoked_by TEXT,
+                created_at TEXT NOT NULL,
+                used_at TEXT,
+                FOREIGN KEY(candidate_id) REFERENCES candidates(id) ON DELETE SET NULL,
+                FOREIGN KEY(demand_id) REFERENCES demand_requests(id) ON DELETE SET NULL
+            );
+
             CREATE TABLE IF NOT EXISTS public_mcq_results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 public_link_id INTEGER,
@@ -526,25 +545,6 @@ def init_db() -> None:
                 FOREIGN KEY(public_link_id) REFERENCES public_upload_links(id) ON DELETE SET NULL,
                 FOREIGN KEY(demand_id) REFERENCES demand_requests(id) ON DELETE SET NULL,
                 FOREIGN KEY(candidate_id) REFERENCES candidates(id) ON DELETE SET NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS public_upload_links (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                token TEXT UNIQUE NOT NULL,
-                role_title TEXT,
-                role_definition TEXT,
-                candidate_id INTEGER,
-                demand_id INTEGER,
-                include_mcq INTEGER NOT NULL DEFAULT 1,
-                created_by TEXT,
-                expires_at TEXT NOT NULL,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                revoked_at TEXT,
-                revoked_by TEXT,
-                created_at TEXT NOT NULL,
-                used_at TEXT,
-                FOREIGN KEY(candidate_id) REFERENCES candidates(id) ON DELETE SET NULL,
-                FOREIGN KEY(demand_id) REFERENCES demand_requests(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS company_profile (
