@@ -332,3 +332,11 @@ For Railway, add a PostgreSQL service and link its `DATABASE_URL` to this applic
   - user email IDs
   - email history
 - Made client edit/delete actions clearer with `Edit details` and `Delete` buttons.
+
+
+## Production 1.7 SMTP Diagnostics
+
+- Added Admin Outreach SMTP status endpoint and `Test SMTP` button.
+- Improved SMTP error messages, especially DNS failures such as `[Errno -3] Temporary failure in name resolution`.
+- If SMTP_HOST cannot be resolved, the app now clearly instructs the Admin to check Railway Variables and provider SMTP hostname.
+- Outreach page now shows whether SMTP is configured and which host/port/from email are being used.

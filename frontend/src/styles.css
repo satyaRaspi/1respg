@@ -288,3 +288,6 @@ mark.neutral { background: #e2e8f0; color: #334155; }
   .stickyComposer { position: static; }
   .userTopChip span { display: none; }
 }
+
+.smtpStatusBox { align-items: flex-start; }
+.smtpStatusBox span { word-break: break-word; }

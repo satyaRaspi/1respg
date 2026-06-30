@@ -9,6 +9,7 @@ import secrets
 import time
 import sqlite3
 import smtplib
+import socket
 import uuid
 from email.message import EmailMessage
 from collections import Counter, defaultdict
@@ -33,7 +34,7 @@ from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 APP_NAME = "1Resource"
-APP_VERSION = "Production 1.6"
+APP_VERSION = "Production 1.7"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
@@ -894,6 +895,52 @@ def smtp_is_configured() -> bool:
     return bool(SMTP_HOST and SMTP_FROM_EMAIL)
 
 
+def friendly_smtp_error(exc: Exception) -> str:
+    raw = str(exc)
+    if isinstance(exc, socket.gaierror) or "Temporary failure in name resolution" in raw or "Name or service not known" in raw:
+        return f"DNS could not resolve SMTP_HOST='{SMTP_HOST}'. Check Railway Variables and use your provider's exact SMTP server name, for example smtp.gmail.com, smtp.office365.com, or your email provider SMTP host."
+    if isinstance(exc, TimeoutError) or "timed out" in raw.lower():
+        return f"Connection to SMTP_HOST='{SMTP_HOST}' on port {SMTP_PORT} timed out. Check host, port and SMTP provider firewall/settings."
+    if "Authentication" in raw or "Username and Password not accepted" in raw:
+        return "SMTP authentication failed. Check SMTP_USERNAME and SMTP_PASSWORD. For Gmail/Workspace, use an App Password or approved SMTP relay."
+    return raw[:500]
+
+
+def smtp_config_status() -> Dict[str, Any]:
+    missing = []
+    if not SMTP_HOST:
+        missing.append("SMTP_HOST")
+    if not SMTP_FROM_EMAIL:
+        missing.append("SMTP_FROM_EMAIL")
+    return {
+        "configured": bool(SMTP_HOST and SMTP_FROM_EMAIL),
+        "host": SMTP_HOST or "",
+        "port": SMTP_PORT,
+        "from_email": SMTP_FROM_EMAIL or "",
+        "from_name": SMTP_FROM_NAME or "",
+        "tls": SMTP_USE_TLS,
+        "has_username": bool(SMTP_USERNAME),
+        "has_password": bool(SMTP_PASSWORD),
+        "missing": missing,
+    }
+
+
+def test_smtp_connection() -> Dict[str, Any]:
+    status = smtp_config_status()
+    if not status["configured"]:
+        return {"ok": False, **status, "message": f"SMTP is not configured. Missing: {', '.join(status['missing'])}"}
+    try:
+        socket.getaddrinfo(SMTP_HOST, SMTP_PORT)
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+            if SMTP_USE_TLS:
+                smtp.starttls()
+            if SMTP_USERNAME and SMTP_PASSWORD:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+        return {"ok": True, **status, "message": "SMTP connection test passed."}
+    except Exception as exc:
+        return {"ok": False, **status, "message": friendly_smtp_error(exc)}
+
+
 def send_outreach_email(recipient_email: str, subject: str, body: str) -> Tuple[str, str]:
     """Send via SMTP when configured. If SMTP is not configured, log as queued instead of pretending to send."""
     if not smtp_is_configured():
@@ -906,6 +953,7 @@ def send_outreach_email(recipient_email: str, subject: str, body: str) -> Tuple[
     msg.set_content(body)
 
     try:
+        socket.getaddrinfo(SMTP_HOST, SMTP_PORT)
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
             if SMTP_USE_TLS:
                 smtp.starttls()
@@ -914,7 +962,7 @@ def send_outreach_email(recipient_email: str, subject: str, body: str) -> Tuple[
             smtp.send_message(msg)
         return "sent", ""
     except Exception as exc:
-        return "failed", str(exc)[:500]
+        return "failed", friendly_smtp_error(exc)
 
 
 def get_current_user(authorization: str = Header(default="")) -> Dict[str, Any]:
@@ -3281,6 +3329,18 @@ def list_outreach_logs(user: Dict[str, Any] = Depends(require_roles("Admin"))) -
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM email_outreach_logs ORDER BY created_at DESC, id DESC LIMIT 200").fetchall()
     return [dict_row(r) for r in rows]
+
+
+@app.get("/api/outreach/smtp-status")
+def outreach_smtp_status(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, Any]:
+    return smtp_config_status()
+
+
+@app.post("/api/outreach/test-smtp")
+def outreach_test_smtp(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, Any]:
+    result = test_smtp_connection()
+    log_action(user["username"], "test_smtp_connection", "email_outreach", None, result.get("message", ""))
+    return result
 
 
 @app.post("/api/outreach/send")
