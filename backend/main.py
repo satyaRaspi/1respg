@@ -8,7 +8,9 @@ import re
 import secrets
 import time
 import sqlite3
+import smtplib
 import uuid
+from email.message import EmailMessage
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -31,7 +33,7 @@ from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 APP_NAME = "1Resource"
-APP_VERSION = "Production 1.4"
+APP_VERSION = "Production 1.6"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
@@ -52,6 +54,13 @@ ALLOWED_ORIGINS = [
     ).split(",") if origin.strip()
 ]
 PUBLIC_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{32,128}$")
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "").strip()
+SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL", SMTP_USERNAME).strip()
+SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "1Resource Team").strip()
+SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() not in {"0", "false", "no"}
 RATE_BUCKETS: Dict[str, List[float]] = {}
 
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -561,6 +570,39 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS potential_clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_name TEXT NOT NULL,
+                contact_name TEXT,
+                email TEXT NOT NULL,
+                phone TEXT,
+                segment TEXT,
+                status TEXT DEFAULT 'Prospect',
+                notes TEXT,
+                created_by TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS email_outreach_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER,
+                user_id INTEGER,
+                recipient_type TEXT NOT NULL,
+                recipient_name TEXT,
+                recipient_email TEXT NOT NULL,
+                email_type TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                body TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error TEXT,
+                created_by TEXT,
+                created_at TEXT NOT NULL,
+                sent_at TEXT,
+                FOREIGN KEY(client_id) REFERENCES potential_clients(id) ON DELETE SET NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+
             CREATE TABLE IF NOT EXISTS activity_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor TEXT,
@@ -592,6 +634,8 @@ def init_db() -> None:
         add_column_if_missing(conn, "candidates", "photo_file_path", "TEXT")
         add_column_if_missing(conn, "users", "email", "TEXT")
         add_column_if_missing(conn, "users", "phone", "TEXT")
+        add_column_if_missing(conn, "users", "photo_file_name", "TEXT")
+        add_column_if_missing(conn, "users", "photo_file_path", "TEXT")
         add_column_if_missing(conn, "users", "failed_attempts", "INTEGER NOT NULL DEFAULT 0")
         add_column_if_missing(conn, "users", "locked_until", "TEXT")
         add_column_if_missing(conn, "users", "force_password_change", "INTEGER NOT NULL DEFAULT 0")
@@ -622,6 +666,13 @@ def init_db() -> None:
         add_column_if_missing(conn, "company_profile", "website", "TEXT")
         add_column_if_missing(conn, "company_profile", "logo_file_name", "TEXT")
         add_column_if_missing(conn, "company_profile", "logo_file_path", "TEXT")
+        add_column_if_missing(conn, "potential_clients", "phone", "TEXT")
+        add_column_if_missing(conn, "potential_clients", "segment", "TEXT")
+        add_column_if_missing(conn, "potential_clients", "status", "TEXT DEFAULT 'Prospect'")
+        add_column_if_missing(conn, "potential_clients", "notes", "TEXT")
+        add_column_if_missing(conn, "potential_clients", "created_by", "TEXT")
+        add_column_if_missing(conn, "email_outreach_logs", "user_id", "INTEGER")
+        add_column_if_missing(conn, "email_outreach_logs", "recipient_type", "TEXT DEFAULT 'client'")
         add_column_if_missing(conn, "company_profile", "updated_at", "TEXT")
         add_column_if_missing(conn, "demand_requests", "created_date", "TEXT")
         # Backfill explicit created_date for old records so trend analytics uses a stable record-created date.
@@ -766,6 +817,32 @@ class CompanyProfileUpdate(BaseModel):
     website: Optional[str] = ""
 
 
+class PotentialClientBase(BaseModel):
+    company_name: str
+    contact_name: Optional[str] = ""
+    email: str
+    phone: Optional[str] = ""
+    segment: Optional[str] = ""
+    status: Optional[str] = "Prospect"
+    notes: Optional[str] = ""
+
+
+class PotentialClientCreate(PotentialClientBase):
+    pass
+
+
+class PotentialClientUpdate(PotentialClientBase):
+    pass
+
+
+class OutreachEmailRequest(BaseModel):
+    client_ids: List[int] = Field(default_factory=list)
+    user_ids: List[int] = Field(default_factory=list)
+    email_type: str = "encourage"
+    subject: str
+    body: str
+
+
 class DemandBase(BaseModel):
     client_name: Optional[str] = ""
     project_name: Optional[str] = ""
@@ -797,6 +874,49 @@ class ShortlistUpdate(BaseModel):
     notes: Optional[str] = ""
 
 
+
+def validate_outreach_email(value: str) -> str:
+    email = (value or "").strip()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(status_code=400, detail=f"Invalid email address: {email or 'blank'}")
+    return email
+
+
+def validate_email_type(value: str) -> str:
+    email_type = (value or "").strip().lower()
+    allowed = {"encourage", "release_notes", "shutdown"}
+    if email_type not in allowed:
+        raise HTTPException(status_code=400, detail="Email type must be encourage, release_notes, or shutdown")
+    return email_type
+
+
+def smtp_is_configured() -> bool:
+    return bool(SMTP_HOST and SMTP_FROM_EMAIL)
+
+
+def send_outreach_email(recipient_email: str, subject: str, body: str) -> Tuple[str, str]:
+    """Send via SMTP when configured. If SMTP is not configured, log as queued instead of pretending to send."""
+    if not smtp_is_configured():
+        return "queued_smtp_not_configured", "SMTP not configured. Set SMTP_HOST, SMTP_PORT, SMTP_FROM_EMAIL and optional SMTP_USERNAME/SMTP_PASSWORD."
+
+    msg = EmailMessage()
+    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+    msg["To"] = recipient_email
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
+            if SMTP_USE_TLS:
+                smtp.starttls()
+            if SMTP_USERNAME and SMTP_PASSWORD:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(msg)
+        return "sent", ""
+    except Exception as exc:
+        return "failed", str(exc)[:500]
+
+
 def get_current_user(authorization: str = Header(default="")) -> Dict[str, Any]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing login token")
@@ -806,8 +926,8 @@ def get_current_user(authorization: str = Header(default="")) -> Dict[str, Any]:
     with get_db() as conn:
         row = conn.execute(
             """
-            SELECT users.id, users.username, users.full_name, users.email, users.phone, users.role, users.is_active,
-                   users.force_password_change, sessions.created_at, sessions.expires_at
+            SELECT users.id, users.username, users.full_name, users.email, users.phone, users.photo_file_name, users.photo_file_path,
+                   users.role, users.is_active, users.force_password_change, sessions.created_at, sessions.expires_at
             FROM sessions JOIN users ON sessions.user_id = users.id
             WHERE sessions.token = ?
             """,
@@ -1688,7 +1808,9 @@ def logout(authorization: str = Header(default=""), user: Dict[str, Any] = Depen
 
 @app.get("/api/me")
 def me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    return user
+    data = dict(user)
+    data.pop("photo_file_path", None)
+    return data
 
 
 @app.put("/api/me/profile")
@@ -1704,9 +1826,35 @@ def update_my_profile(payload: UserProfileUpdate, user: Dict[str, Any] = Depends
             (full_name, email, phone, user["id"]),
         )
         conn.commit()
-        row = conn.execute("SELECT id, username, full_name, email, phone, role, is_active, force_password_change FROM users WHERE id=?", (user["id"],)).fetchone()
+        row = conn.execute("SELECT id, username, full_name, email, phone, photo_file_name, photo_file_path, role, is_active, force_password_change FROM users WHERE id=?", (user["id"],)).fetchone()
     log_action(user["username"], "update_login_profile", "user", user["id"])
-    return dict_row(row)
+    data = dict_row(row)
+    data.pop("photo_file_path", None)
+    return data
+
+
+@app.post("/api/me/photo")
+def upload_my_photo(photo: UploadFile = File(...), user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    photo_name, photo_path = save_photo_upload(photo, f"user_{user['id']}_photo")
+    with get_db() as conn:
+        conn.execute("UPDATE users SET photo_file_name=?, photo_file_path=? WHERE id=?", (photo_name, photo_path, user["id"]))
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, username, full_name, email, phone, photo_file_name, photo_file_path, role, is_active, force_password_change FROM users WHERE id=?",
+            (user["id"],),
+        ).fetchone()
+    log_action(user["username"], "upload_user_photo", "user", user["id"], photo_name)
+    data = dict_row(row)
+    data.pop("photo_file_path", None)
+    return data
+
+
+@app.get("/api/me/photo")
+def get_my_photo(user: Dict[str, Any] = Depends(get_current_user)):
+    path = user.get("photo_file_path") or ""
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Profile photo not found")
+    return FileResponse(path, filename=user.get("photo_file_name") or "profile_photo")
 
 
 class PasswordChange(BaseModel):
@@ -3052,6 +3200,162 @@ def security_status(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> D
             "Audit logs for critical actions",
         ],
     }
+
+
+
+@app.get("/api/potential-clients")
+def list_potential_clients(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> List[Dict[str, Any]]:
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM potential_clients ORDER BY updated_at DESC, id DESC").fetchall()
+    return [dict_row(r) for r in rows]
+
+
+@app.post("/api/potential-clients")
+def create_potential_client(payload: PotentialClientCreate, user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, Any]:
+    company_name = (payload.company_name or "").strip()
+    email = validate_outreach_email(payload.email)
+    if not company_name:
+        raise HTTPException(status_code=400, detail="Company name is required")
+    with get_db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO potential_clients(company_name, contact_name, email, phone, segment, status, notes, created_by, created_at, updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
+            """,
+            (company_name, (payload.contact_name or "").strip(), email, (payload.phone or "").strip(),
+             (payload.segment or "").strip(), (payload.status or "Prospect").strip(), (payload.notes or "").strip(),
+             user["username"], now_iso(), now_iso()),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM potential_clients WHERE id=?", (cur.lastrowid,)).fetchone()
+    log_action(user["username"], "create_potential_client", "potential_client", cur.lastrowid, company_name)
+    return dict_row(row)
+
+
+@app.put("/api/potential-clients/{client_id}")
+def update_potential_client(client_id: int, payload: PotentialClientUpdate, user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, Any]:
+    company_name = (payload.company_name or "").strip()
+    email = validate_outreach_email(payload.email)
+    if not company_name:
+        raise HTTPException(status_code=400, detail="Company name is required")
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM potential_clients WHERE id=?", (client_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Potential client not found")
+        conn.execute(
+            """
+            UPDATE potential_clients
+            SET company_name=?, contact_name=?, email=?, phone=?, segment=?, status=?, notes=?, updated_at=?
+            WHERE id=?
+            """,
+            (company_name, (payload.contact_name or "").strip(), email, (payload.phone or "").strip(),
+             (payload.segment or "").strip(), (payload.status or "Prospect").strip(), (payload.notes or "").strip(),
+             now_iso(), client_id),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM potential_clients WHERE id=?", (client_id,)).fetchone()
+    log_action(user["username"], "update_potential_client", "potential_client", client_id, company_name)
+    return dict_row(row)
+
+
+@app.delete("/api/potential-clients/{client_id}")
+def delete_potential_client(client_id: int, user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, str]:
+    with get_db() as conn:
+        conn.execute("DELETE FROM potential_clients WHERE id=?", (client_id,))
+        conn.commit()
+    log_action(user["username"], "delete_potential_client", "potential_client", client_id)
+    return {"message": "Potential client deleted"}
+
+
+@app.get("/api/outreach/users")
+def list_outreach_users(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> List[Dict[str, Any]]:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, username, full_name, email, phone, role, is_active FROM users WHERE COALESCE(email,'') <> '' ORDER BY full_name, username"
+        ).fetchall()
+    return [dict_row(r) for r in rows]
+
+
+@app.get("/api/outreach/logs")
+def list_outreach_logs(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> List[Dict[str, Any]]:
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM email_outreach_logs ORDER BY created_at DESC, id DESC LIMIT 200").fetchall()
+    return [dict_row(r) for r in rows]
+
+
+@app.post("/api/outreach/send")
+def send_customer_outreach(payload: OutreachEmailRequest, user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, Any]:
+    email_type = validate_email_type(payload.email_type)
+    subject = (payload.subject or "").strip()
+    body = (payload.body or "").strip()
+    if not subject:
+        raise HTTPException(status_code=400, detail="Subject is required")
+    if not body:
+        raise HTTPException(status_code=400, detail="Email body is required")
+    if not payload.client_ids and not payload.user_ids:
+        raise HTTPException(status_code=400, detail="Select at least one potential client or user email")
+
+    recipients: List[Dict[str, Any]] = []
+    with get_db() as conn:
+        if payload.client_ids:
+            placeholders = ",".join(["?"] * len(payload.client_ids))
+            client_rows = conn.execute(f"SELECT * FROM potential_clients WHERE id IN ({placeholders})", tuple(payload.client_ids)).fetchall()
+            for r in client_rows:
+                recipients.append({
+                    "recipient_type": "client",
+                    "client_id": r["id"],
+                    "user_id": None,
+                    "recipient_name": r["contact_name"] or r["company_name"],
+                    "recipient_email": r["email"],
+                })
+        if payload.user_ids:
+            placeholders = ",".join(["?"] * len(payload.user_ids))
+            user_rows = conn.execute(f"SELECT id, full_name, username, email FROM users WHERE id IN ({placeholders}) AND COALESCE(email,'') <> ''", tuple(payload.user_ids)).fetchall()
+            for r in user_rows:
+                recipients.append({
+                    "recipient_type": "user",
+                    "client_id": None,
+                    "user_id": r["id"],
+                    "recipient_name": r["full_name"] or r["username"],
+                    "recipient_email": r["email"],
+                })
+
+        if not recipients:
+            raise HTTPException(status_code=400, detail="No valid recipient emails found")
+
+        sent = queued = failed = 0
+        results = []
+        for rec in recipients:
+            recipient_email = validate_outreach_email(rec["recipient_email"])
+            status, error = send_outreach_email(recipient_email, subject, body)
+            if status == "sent":
+                sent += 1
+                sent_at = now_iso()
+            elif status == "queued_smtp_not_configured":
+                queued += 1
+                sent_at = None
+            else:
+                failed += 1
+                sent_at = None
+
+            cur = conn.execute(
+                """
+                INSERT INTO email_outreach_logs(client_id, user_id, recipient_type, recipient_name, recipient_email, email_type,
+                    subject, body, status, error, created_by, created_at, sent_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (rec["client_id"], rec["user_id"], rec["recipient_type"], rec["recipient_name"], recipient_email, email_type,
+                 subject, body, status, error, user["username"], now_iso(), sent_at),
+            )
+            results.append({"id": cur.lastrowid, "email": recipient_email, "status": status, "error": error})
+        conn.commit()
+
+    log_action(user["username"], "send_customer_outreach", "email_outreach", None, f"type={email_type}; sent={sent}; queued={queued}; failed={failed}")
+    if queued and not sent and not failed:
+        message = f"Prepared {queued} email(s). SMTP is not configured, so they were logged but not sent."
+    else:
+        message = f"Outreach completed: sent {sent}, queued {queued}, failed {failed}."
+    return {"message": message, "sent": sent, "queued": queued, "failed": failed, "results": results}
 
 
 @app.post("/api/demo-data")

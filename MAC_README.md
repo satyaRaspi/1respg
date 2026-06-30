@@ -296,3 +296,39 @@ For Railway, add a PostgreSQL service and link its `DATABASE_URL` to this applic
 - Backend now returns a clean success response even if the non-critical audit-log insert fails after demo data has already been committed.
 - Frontend now separates demo-data creation from screen refreshes, so a refresh failure does not incorrectly mark data creation as failed.
 - If demo data is created but a dashboard refresh fails, the UI now shows a partial-refresh warning instead of a failed creation message.
+
+
+## Production 1.5 Admin Customer Outreach
+
+- Added a new Admin-only `Outreach` page.
+- Admin can maintain a potential client/customer list with company, contact name, email ID, phone, segment, status and notes.
+- Admin can view internal user email IDs from login profiles.
+- Admin can send or queue three types of emails:
+  - Encourage to use
+  - Release notes
+  - Shutdown details
+- Added email outreach logs showing recipient, type, subject, status and errors.
+- SMTP sending is supported through environment variables:
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_USE_TLS`
+  - `SMTP_FROM_EMAIL`
+  - `SMTP_FROM_NAME`
+  - `SMTP_USERNAME`
+  - `SMTP_PASSWORD`
+- If SMTP is not configured, emails are safely logged as queued instead of being silently lost.
+
+
+## Production 1.6 UI, Outreach and User DP
+
+- Moved logout from the left sidebar to the top-right corner as an icon-only button.
+- Added user display picture support in the login profile.
+- The user's DP is now shown in the top-right header and profile page.
+- Rearranged the Admin Outreach page into a clearer workspace:
+  - summary cards
+  - client editor
+  - potential client directory
+  - sticky email composer
+  - user email IDs
+  - email history
+- Made client edit/delete actions clearer with `Edit details` and `Delete` buttons.

@@ -256,3 +256,35 @@ mark.neutral { background: #e2e8f0; color: #334155; }
 .readonlyPanel .subHeader h3 { margin: 0; }
 .readonlyPanel .subHeader p { margin: 4px 0 0; color: #64748b; }
 .readonlyPanel .info { background: #fff; border-color: #e2e8f0; }
+
+
+/* Production 1.6: top-right logout, user DP, outreach layout */
+.topbarMeta { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.userTopChip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #dbe4f0; background: #fff; color: #0f172a; border-radius: 999px; padding: 6px 10px 6px 6px; font-weight: 900; box-shadow: 0 6px 18px rgba(15, 23, 42, .06); }
+.logoutIcon { width: 38px; height: 38px; display: inline-grid; place-items: center; border-radius: 999px; border: 1px solid #fecaca; background: #fff1f2; color: #991b1b; font-size: 20px; font-weight: 900; padding: 0; }
+.logoutIcon:hover { background: #fee2e2; transform: translateY(-1px); }
+.avatar { display: inline-grid; place-items: center; overflow: hidden; flex: 0 0 auto; border-radius: 999px; background: linear-gradient(135deg, #0f172a, #334155); color: #fff; font-weight: 900; letter-spacing: .04em; border: 2px solid #fff; box-shadow: 0 4px 12px rgba(15, 23, 42, .18); }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-normal { width: 32px; height: 32px; font-size: 12px; }
+.avatar-large { width: 110px; height: 110px; font-size: 32px; }
+.profileLayout { align-items: start; }
+.dpPanel { display: grid; gap: 16px; }
+.dpPreview { display: flex; align-items: center; gap: 18px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; }
+.dpPreview div:not(.avatar) { display: grid; gap: 4px; }
+.dpPreview span, .dpPreview small { color: #64748b; font-weight: 800; }
+.filePicker { display: grid; gap: 7px; font-weight: 900; color: #334155; }
+.filePicker input { padding: 10px; border: 1px dashed #cbd5e1; border-radius: 12px; background: #f8fafc; }
+.sideFooter button { display: none; }
+
+.outreachPage .outreachStats { margin-bottom: 18px; }
+.outreachWorkspace { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(360px, .9fr); gap: 18px; align-items: start; }
+.outreachLeft, .outreachRight { display: grid; gap: 18px; min-width: 0; }
+.clientEditor { border-left: 5px solid #0f172a; }
+.stickyComposer { position: sticky; top: 18px; }
+.rowActions { display: flex; gap: 8px; flex-wrap: wrap; }
+.rowActions button { white-space: nowrap; }
+@media (max-width: 1100px) {
+  .outreachWorkspace { grid-template-columns: 1fr; }
+  .stickyComposer { position: static; }
+  .userTopChip span { display: none; }
+}

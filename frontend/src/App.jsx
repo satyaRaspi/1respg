@@ -4,8 +4,8 @@ import brandLogo from './assets/truflux_logo.png';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const APP_NAME = '1Resource';
 const APP_SUBTITLE = 'by Truflux Technologies';
-const APP_VERSION = 'Production 1.4';
-const APP_FOOTER = '1Resource by Truflux Technologies | Version Production 1.4.4.3.2 | © 2026 Truflux Technologies. All rights reserved. | Internal Use Only';
+const APP_VERSION = 'Production 1.6';
+const APP_FOOTER = '1Resource by Truflux Technologies | Version Production 1.6 | © 2026 Truflux Technologies. All rights reserved. | Internal Use Only';
 
 const emptyCandidate = {
   full_name: '', email: '', phone: '', location: '', current_status: 'Available', availability_date: 'Immediate', available_by_date: '', notice_period_days: 0,
@@ -41,6 +41,16 @@ async function api(path, options = {}, token) {
   const type = res.headers.get('content-type') || '';
   if (type.includes('application/json')) return res.json();
   return res;
+}
+
+
+function userInitials(user) {
+  const name = (user?.full_name || user?.username || 'U').trim();
+  return name.split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase() || 'U';
+}
+
+function Avatar({ user, photoUrl, size = 'normal' }) {
+  return <div className={`avatar avatar-${size}`}>{photoUrl ? <img src={photoUrl} alt="User display picture" /> : <span>{userInitials(user)}</span>}</div>;
 }
 
 function money(value) { return `₹${Number(value || 0).toLocaleString('en-IN')}`; }
@@ -743,8 +753,9 @@ function ChangePassword({ onChangePassword }) {
 }
 
 
-function MyProfile({ user, onSave }) {
+function MyProfile({ user, photoUrl, onSave, onUploadPhoto }) {
   const [form, setForm] = useState({ full_name: user?.full_name || '', email: user?.email || '', phone: user?.phone || '' });
+  const [photo, setPhoto] = useState(null);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -766,19 +777,44 @@ function MyProfile({ user, onSave }) {
     }
   }
 
+  async function uploadPhoto() {
+    if (!photo) return;
+    setSaving(true);
+    setStatus('');
+    try {
+      await onUploadPhoto(photo);
+      setPhoto(null);
+      setStatus('Display picture updated.');
+    } catch (err) {
+      setStatus(`Photo upload failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return <section className="pageBlock">
     <div className="sectionHeader"><div><h2>My Login Profile</h2><p>This email ID and phone number will appear as the authorized contact in generated resume PDFs. Candidate contact details remain hidden.</p></div></div>
-    <form className="panel" onSubmit={save}>
-      <div className="formGrid two">
-        <Input label="Full name" value={form.full_name} onChange={v => setForm({ ...form, full_name: v })} />
-        <Input label="Authorized email ID for resume PDF" value={form.email} onChange={v => setForm({ ...form, email: v })} />
-        <Input label="Authorized phone number for resume PDF" value={form.phone} onChange={v => setForm({ ...form, phone: v })} />
+    <div className="twoCol profileLayout">
+      <form className="panel" onSubmit={save}>
+        <h3>Profile Details</h3>
+        <div className="formGrid two">
+          <Input label="Full name" value={form.full_name} onChange={v => setForm({ ...form, full_name: v })} />
+          <Input label="Authorized email ID for resume PDF" value={form.email} onChange={v => setForm({ ...form, email: v })} />
+          <Input label="Authorized phone number for resume PDF" value={form.phone} onChange={v => setForm({ ...form, phone: v })} />
+        </div>
+        <div className="actions"><button className="primary" disabled={saving}>{saving ? 'Saving...' : 'Save login profile'}</button></div>
+        {status && <div className={status.startsWith('Save failed') || status.startsWith('Photo upload failed') ? 'error' : 'successBox'}>{status}</div>}
+      </form>
+      <div className="panel dpPanel">
+        <h3>User DP</h3>
+        <div className="dpPreview"><Avatar user={user} photoUrl={photoUrl} size="large" /><div><strong>{user?.full_name || user?.username}</strong><span>{user?.role}</span><small>{user?.photo_file_name ? `Current file: ${user.photo_file_name}` : 'No display picture uploaded yet'}</small></div></div>
+        <label className="filePicker">Upload display picture<input type="file" accept=".jpg,.jpeg,.png,.webp" onChange={e => setPhoto(e.target.files[0])} /></label>
+        <div className="formActions"><button type="button" disabled={!photo || saving} onClick={uploadPhoto}>{saving ? 'Please wait...' : 'Upload DP'}</button></div>
       </div>
-      <div className="actions"><button className="primary" disabled={saving}>{saving ? 'Saving...' : 'Save login profile'}</button></div>
-      {status && <div className={status.startsWith('Save failed') ? 'error' : 'successBox'}>{status}</div>}
-    </form>
+    </div>
   </section>;
 }
+
 
 function SecurityPanel({ security, onRefresh, onChangePassword }) {
   const controls = security.security_controls || [];
@@ -788,6 +824,206 @@ function SecurityPanel({ security, onRefresh, onChangePassword }) {
     <ChangePassword onChangePassword={onChangePassword} />
   </section>;
 }
+
+
+function CustomerOutreach({ clients, appUsers, logs, onRefresh, onSaveClient, onDeleteClient, onSend }) {
+  const emptyClient = { company_name: '', contact_name: '', email: '', phone: '', segment: '', status: 'Prospect', notes: '' };
+  const templates = {
+    encourage: {
+      label: 'Encourage to use',
+      subject: 'Start using 1Resource for demand-supply visibility',
+      body: `Hello,
+
+We are inviting you to start using 1Resource to organize demand requests, resume supply, candidate screening, role matching and client-ready resource planning in one place.
+
+The platform helps teams capture demand, maintain a resume bank, assess fitment, generate standardized profiles, and track shortlisting with better visibility.
+
+Please let us know a convenient time for a short walkthrough.
+
+Regards,
+1Resource Team`
+    },
+    release_notes: {
+      label: 'Release notes',
+      subject: '1Resource release update',
+      body: `Hello,
+
+We are sharing the latest 1Resource release notes.
+
+Key updates include improved demand management, resume bank workflows, candidate screening, public upload links, role-based matching, PostgreSQL deployment support, and production readiness improvements.
+
+Please review the release and start using the updated version.
+
+Regards,
+1Resource Team`
+    },
+    shutdown: {
+      label: 'Shutdown details',
+      subject: 'Important: 1Resource shutdown / maintenance notice',
+      body: `Hello,
+
+This is an important notice regarding planned shutdown or maintenance activity for 1Resource.
+
+Please complete any pending work before the advised window. Access may be temporarily unavailable during the shutdown period. We will notify you once services are restored.
+
+Regards,
+1Resource Team`
+    }
+  };
+  const [clientForm, setClientForm] = useState(emptyClient);
+  const [selectedClients, setSelectedClients] = useState([]);
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [emailForm, setEmailForm] = useState({ email_type: 'encourage', subject: templates.encourage.subject, body: templates.encourage.body });
+  const [localMsg, setLocalMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const clientEmails = selectedClients.length;
+  const userEmails = selectedUsers.length;
+
+  function selectTemplate(type) {
+    const t = templates[type] || templates.encourage;
+    setEmailForm({ email_type: type, subject: t.subject, body: t.body });
+  }
+
+  function toggle(list, setList, id) {
+    setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
+  }
+
+  function editClient(c) {
+    setClientForm({
+      id: c.id,
+      company_name: c.company_name || '',
+      contact_name: c.contact_name || '',
+      email: c.email || '',
+      phone: c.phone || '',
+      segment: c.segment || '',
+      status: c.status || 'Prospect',
+      notes: c.notes || ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setLocalMsg('Editing client information. Make changes and click Save client.');
+  }
+
+  async function saveClient(e) {
+    e?.preventDefault?.();
+    setBusy(true);
+    setLocalMsg('');
+    try {
+      await onSaveClient(clientForm);
+      setClientForm(emptyClient);
+      setLocalMsg(clientForm.id ? 'Client information updated.' : 'Potential client saved.');
+    } catch (err) {
+      setLocalMsg(`Save failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeClient(id) {
+    if (!confirm('Delete this potential client?')) return;
+    setBusy(true);
+    setLocalMsg('');
+    try {
+      await onDeleteClient(id);
+      setSelectedClients(selectedClients.filter(x => x !== id));
+      if (clientForm.id === id) setClientForm(emptyClient);
+      setLocalMsg('Potential client deleted.');
+    } catch (err) {
+      setLocalMsg(`Delete failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendEmail() {
+    setBusy(true);
+    setLocalMsg('');
+    try {
+      const res = await onSend({ ...emailForm, client_ids: selectedClients, user_ids: selectedUsers });
+      setLocalMsg(res.message || 'Email action completed.');
+    } catch (err) {
+      setLocalMsg(`Email failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const isError = localMsg.includes('failed');
+
+  return <section className="pageBlock outreachPage">
+    <div className="sectionHeader">
+      <div><h2>Customer Outreach</h2><p>Admin-only customer directory, recipient selection, email composer and outreach history.</p></div>
+      <button onClick={onRefresh}>Refresh</button>
+    </div>
+
+    <div className="statsGrid outreachStats">
+      <StatCard label="Potential Clients" value={clients.length} helper="Customer records" />
+      <StatCard label="User Email IDs" value={appUsers.length} helper="Internal recipients" />
+      <StatCard label="Selected Recipients" value={clientEmails + userEmails} helper={`${clientEmails} clients / ${userEmails} users`} />
+      <StatCard label="Email History" value={logs.length} helper="Latest 200 logs" />
+    </div>
+
+    {localMsg && <div className={isError ? 'error' : 'successBox'}>{localMsg}</div>}
+
+    <div className="outreachWorkspace">
+      <div className="outreachLeft">
+        <form className="panel compact clientEditor" onSubmit={saveClient}>
+          <div className="subHeader"><div><h3>{clientForm.id ? 'Edit Client Information' : 'Add Potential Client'}</h3><p>{clientForm.id ? 'Update or clear the selected client record.' : 'Create a customer record before sending outreach.'}</p></div>{clientForm.id && <mark className="neutral">Editing #{clientForm.id}</mark>}</div>
+          <div className="formGrid">
+            <Input label="Company / Customer" value={clientForm.company_name} onChange={v => setClientForm({ ...clientForm, company_name: v })} />
+            <Input label="Contact name" value={clientForm.contact_name} onChange={v => setClientForm({ ...clientForm, contact_name: v })} />
+            <Input label="Email ID" value={clientForm.email} onChange={v => setClientForm({ ...clientForm, email: v })} />
+            <Input label="Phone" value={clientForm.phone} onChange={v => setClientForm({ ...clientForm, phone: v })} />
+            <Input label="Segment" value={clientForm.segment} onChange={v => setClientForm({ ...clientForm, segment: v })} />
+            <Select label="Status" value={clientForm.status} onChange={v => setClientForm({ ...clientForm, status: v })} options={['Prospect','Interested','Trial','Active','Dormant','Do Not Contact']} />
+          </div>
+          <TextArea label="Notes" value={clientForm.notes} rows={3} onChange={v => setClientForm({ ...clientForm, notes: v })} />
+          <div className="formActions"><button type="button" onClick={() => { setClientForm(emptyClient); setLocalMsg(''); }}>Clear</button><button className="primary" disabled={busy}>{busy ? 'Please wait...' : 'Save client'}</button></div>
+        </form>
+
+        <div className="panel">
+          <div className="subHeader"><div><h3>Potential Clients</h3><p>Select customers for email outreach. Use Edit details or Delete for client maintenance.</p></div><mark className="neutral">{clients.length} clients</mark></div>
+          <div className="tableWrap"><table><thead><tr><th>Select</th><th>Client</th><th>Email / Phone</th><th>Status</th><th>Actions</th></tr></thead><tbody>{clients.map(c => <tr key={c.id}>
+            <td><input type="checkbox" checked={selectedClients.includes(c.id)} onChange={() => toggle(selectedClients, setSelectedClients, c.id)} /></td>
+            <td><strong>{c.company_name}</strong><br /><small>{c.contact_name || '-'} · {c.segment || '-'}</small></td>
+            <td>{c.email}<br /><small>{c.phone || '-'}</small></td>
+            <td><span className="pill">{c.status || 'Prospect'}</span></td>
+            <td className="rowActions"><button onClick={() => editClient(c)}>Edit details</button><button className="danger" onClick={() => removeClient(c.id)}>Delete</button></td>
+          </tr>)}</tbody></table>{clients.length === 0 && <p className="empty">No potential clients added yet.</p>}</div>
+        </div>
+      </div>
+
+      <div className="outreachRight">
+        <div className="panel compact stickyComposer">
+          <h3>Email Composer</h3>
+          <Select label="Email type" value={emailForm.email_type} onChange={selectTemplate} options={Object.keys(templates)} />
+          <Input label="Subject" value={emailForm.subject} onChange={v => setEmailForm({ ...emailForm, subject: v })} />
+          <TextArea label="Email body" value={emailForm.body} rows={11} onChange={v => setEmailForm({ ...emailForm, body: v })} />
+          <div className="hintBox"><strong>SMTP</strong><span>Configure SMTP variables on Railway to send real emails. Without SMTP, emails are safely logged as queued.</span></div>
+          <div className="formActions"><button className="primary" type="button" disabled={busy || (!selectedClients.length && !selectedUsers.length)} onClick={sendEmail}>Send / Queue Email</button></div>
+        </div>
+
+        <div className="panel">
+          <div className="subHeader"><div><h3>User Email IDs</h3><p>Internal app users with login-profile email IDs.</p></div><mark className="neutral">{appUsers.length} users</mark></div>
+          <div className="tableWrap"><table><thead><tr><th>Select</th><th>User</th><th>Email</th><th>Role</th></tr></thead><tbody>{appUsers.map(u => <tr key={u.id}>
+            <td><input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={() => toggle(selectedUsers, setSelectedUsers, u.id)} /></td>
+            <td><strong>{u.full_name || u.username}</strong><br /><small>{u.username}</small></td>
+            <td>{u.email}</td>
+            <td>{u.role}</td>
+          </tr>)}</tbody></table>{appUsers.length === 0 && <p className="empty">No user email IDs configured. Add emails in Admin/User Management or Profile.</p>}</div>
+        </div>
+      </div>
+    </div>
+
+    <div className="panel">
+      <div className="subHeader"><div><h3>Email History</h3><p>Latest outreach attempts and SMTP status.</p></div><mark className="neutral">{logs.length} logs</mark></div>
+      <div className="tableWrap"><table><thead><tr><th>Time</th><th>Recipient</th><th>Type</th><th>Subject</th><th>Status</th><th>Error</th></tr></thead><tbody>{logs.map(l => <tr key={l.id}>
+        <td>{new Date(l.created_at).toLocaleString()}</td><td>{l.recipient_name || '-'}<br /><small>{l.recipient_email}</small></td><td>{l.email_type}</td><td>{l.subject}</td><td><span className="pill">{l.status}</span></td><td>{l.error || '-'}</td>
+      </tr>)}</tbody></table>{logs.length === 0 && <p className="empty">No email history yet.</p>}</div>
+    </div>
+  </section>;
+}
+
 
 function Logs({ logs }) { return <section className="pageBlock"><h2>Activity Logs</h2><div className="tableWrap"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead><tbody>{logs.map(l => <tr key={l.id}><td>{new Date(l.created_at).toLocaleString()}</td><td>{l.actor}</td><td>{l.action}</td><td>{l.entity_type} #{l.entity_id || ''}</td><td>{l.details}</td></tr>)}</tbody></table></div></section>; }
 
@@ -817,6 +1053,10 @@ function App() {
   const [security, setSecurity] = useState({});
   const [companyProfile, setCompanyProfile] = useState({});
   const [currentProfile, setCurrentProfile] = useState(saved?.user || {});
+  const [userPhotoUrl, setUserPhotoUrl] = useState('');
+  const [outreachClients, setOutreachClients] = useState([]);
+  const [outreachUsers, setOutreachUsers] = useState([]);
+  const [outreachLogs, setOutreachLogs] = useState([]);
   const [toast, setToast] = useState('');
   const token = auth?.token; const user = auth?.user;
   function show(message) { setToast(message); setTimeout(() => setToast(''), 3500); }
@@ -834,12 +1074,25 @@ function App() {
   async function loadSecurity() { if (user?.role === 'Admin') setSecurity(await api('/api/security/status', {}, token)); }
   async function loadCompanyProfile() { if (token) setCompanyProfile(await api('/api/company-profile', {}, token)); }
   async function loadCurrentProfile() { if (token) { const data = await api('/api/me', {}, token); setCurrentProfile(data); setAuth(prev => prev ? { ...prev, user: { ...prev.user, ...data } } : prev); } }
-  useEffect(() => { loadDashboard(); loadAnalytics(); loadDemand(); loadTrends(); loadMarketSignals(); loadCompanyProfile(); loadCurrentProfile(); }, [token]);
+  async function loadUserPhoto() {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/me/photo`, { headers: authHeaders(token) });
+      if (!res.ok) { setUserPhotoUrl(''); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setUserPhotoUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
+    } catch (_) {
+      setUserPhotoUrl('');
+    }
+  }
+  async function loadOutreach() { if (user?.role !== 'Admin') return; const [clientsData, usersData, logsData] = await Promise.all([api('/api/potential-clients', {}, token), api('/api/outreach/users', {}, token), api('/api/outreach/logs', {}, token)]); setOutreachClients(clientsData); setOutreachUsers(usersData); setOutreachLogs(logsData); }
+  useEffect(() => { loadDashboard(); loadAnalytics(); loadDemand(); loadTrends(); loadMarketSignals(); loadCompanyProfile(); loadCurrentProfile(); loadUserPhoto(); }, [token]);
   useEffect(() => { loadCandidates(); }, [token, filters.q, filters.skill, filters.status, filters.availability]);
   useEffect(() => { loadDemand(); }, [token, demandFilters.q, demandFilters.skill, demandFilters.status]);
-  useEffect(() => { if (tab === 'admin') { loadAdmin(); loadSecurity(); loadCompanyProfile(); } if (tab === 'security') loadSecurity(); if (tab === 'links') loadLinks(); if (tab === 'intelligence') { loadAnalytics(); loadTrends(); loadMarketSignals(); } if (tab === 'demand') loadDemand(); }, [tab, token]);
+  useEffect(() => { if (tab === 'admin') { loadAdmin(); loadSecurity(); loadCompanyProfile(); } if (tab === 'outreach') loadOutreach(); if (tab === 'security') loadSecurity(); if (tab === 'links') loadLinks(); if (tab === 'intelligence') { loadAnalytics(); loadTrends(); loadMarketSignals(); } if (tab === 'demand') loadDemand(); }, [tab, token]);
   function onLogin(data) { setAuth(data); localStorage.setItem('truflux_auth', JSON.stringify(data)); }
-  async function logout() { try { await api('/api/logout', { method: 'POST' }, token); } catch (_) {} localStorage.removeItem('truflux_auth'); setAuth(null); }
+  async function logout() { try { await api('/api/logout', { method: 'POST' }, token); } catch (_) {} if (userPhotoUrl) URL.revokeObjectURL(userPhotoUrl); setUserPhotoUrl(''); localStorage.removeItem('truflux_auth'); setAuth(null); }
   async function saveCandidate(form) { const method = form.id ? 'PUT' : 'POST'; const path = form.id ? `/api/candidates/${form.id}` : '/api/candidates'; const saved = await api(path, { method, body: JSON.stringify(form) }, token); setEditing(null); await loadCandidates(); await loadDashboard(); setSelected(saved); show('Candidate saved'); }
   async function deleteCandidate() { if (!selected || !confirm('Delete this candidate?')) return; await api(`/api/candidates/${selected.id}`, { method: 'DELETE' }, token); setSelected(null); await loadCandidates(); await loadDashboard(); show('Candidate deleted'); }
   async function addAssessment(id, assessment) { await api(`/api/candidates/${id}/assessments`, { method: 'POST', body: JSON.stringify(assessment) }, token); await loadSelected(id); await loadCandidates(); await loadDashboard(); show('Assessment saved'); }
@@ -887,15 +1140,19 @@ function App() {
   async function revokeLink(id) { if (!confirm('Revoke this public upload link?')) return; await api(`/api/resume-links/${id}/revoke`, { method: 'POST' }, token); await loadLinks(); await loadSecurity(); show('Public upload link revoked'); }
   async function changePassword(payload) { await api('/api/change-password', { method: 'POST', body: JSON.stringify(payload) }, token); show('Password changed'); }
   async function saveMyProfile(payload) { const data = await api('/api/me/profile', { method: 'PUT', body: JSON.stringify(payload) }, token); const nextAuth = { ...auth, user: { ...auth.user, ...data } }; setAuth(nextAuth); setCurrentProfile(data); localStorage.setItem('truflux_auth', JSON.stringify(nextAuth)); show('Login profile saved'); return data; }
+  async function uploadMyPhoto(file) { const fd = new FormData(); fd.append('photo', file); const data = await api('/api/me/photo', { method: 'POST', body: fd }, token); const nextAuth = { ...auth, user: { ...auth.user, ...data } }; setAuth(nextAuth); setCurrentProfile(data); localStorage.setItem('truflux_auth', JSON.stringify(nextAuth)); await loadUserPhoto(); show('Display picture updated'); return data; }
   async function saveCompanyProfile(payload) { const data = await api('/api/company-profile', { method: 'PUT', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } }, token); setCompanyProfile(data); await loadCompanyProfile(); show('Company profile saved'); return data; }
   async function uploadCompanyLogo(file) { const data = new FormData(); data.append('logo', file); const saved = await api('/api/company-profile/logo', { method: 'POST', body: data }, token); setCompanyProfile(saved); await loadCompanyProfile(); show('Company logo uploaded'); return saved; }
+  async function savePotentialClient(payload) { const method = payload.id ? 'PUT' : 'POST'; const path = payload.id ? `/api/potential-clients/${payload.id}` : '/api/potential-clients'; const saved = await api(path, { method, body: JSON.stringify(payload) }, token); await loadOutreach(); show('Potential client saved'); return saved; }
+  async function deletePotentialClient(id) { await api(`/api/potential-clients/${id}`, { method: 'DELETE' }, token); await loadOutreach(); show('Potential client deleted'); }
+  async function sendOutreachEmail(payload) { const res = await api('/api/outreach/send', { method: 'POST', body: JSON.stringify(payload) }, token); await loadOutreach(); show(res.message || 'Outreach completed'); return res; }
   if (!auth) return <Login onLogin={onLogin} />;
   const nav = [
     ['dashboard', '⌂', 'Dashboard'], ['demand', '◎', 'Demand'], ['candidates', '▣', 'Resume Bank'], ['intelligence', '✦', 'Intelligence'], ['profile', '☏', 'Profile']
   ];
   if (user.role === 'Admin' || user.role === 'Recruiter') nav.push(['links', '↗', 'Public Links']);
-  if (user.role === 'Admin') { nav.push(['security', '盾', 'Security']); nav.push(['admin', '⚙', 'Admin']); }
-  return <div className={`appShell ${collapsed ? 'collapsed' : ''}`}><aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}><div className="logo"><img src={brandLogo} alt="Truflux Technologies logo" className="logoImage" /><div><strong>{APP_NAME}</strong><small>{APP_SUBTITLE}</small></div></div><button className="collapseBtn" onClick={toggleMenu}>{collapsed ? '›' : '‹ Collapse'}</button><nav>{nav.map(([key, icon, label]) => <button key={key} title={label} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><span>{icon}</span><em>{label}</em></button>)}</nav><div className="sideFooter"><strong>{user.full_name}</strong><span>{user.role}</span><span className="sideMeta">Version {APP_VERSION}</span><button onClick={logout}>Sign out</button></div></aside><main><header className="topbar"><div><h1>{APP_NAME}</h1><p>{APP_SUBTITLE} · Bench planning, demand capture, candidate screening, resume rating, fake-resume risk and shortlist matching.</p></div><div className="topbarMeta"><span className="pill">Version {APP_VERSION}</span></div></header>{tab === 'dashboard' && <Dashboard dashboard={dashboard} onExport={exportCsv} />}{tab === 'profile' && <MyProfile user={currentProfile || user} onSave={saveMyProfile} />}{tab === 'demand' && <DemandPage demand={demand} filters={demandFilters} setFilters={setDemandFilters} onCreate={() => setEditingDemand(emptyDemand)} onSelect={loadSelectedDemand} />}{tab === 'candidates' && <Candidates candidates={candidates} filters={filters} setFilters={setFilters} onCreate={() => setEditing(emptyCandidate)} onSelect={loadSelected} onDownloadStandard={downloadStandardResume} />}{tab === 'intelligence' && <MLAnalytics analytics={analytics} trends={trends} marketSignals={marketSignals} candidates={candidates} demand={demand} onRefresh={loadAnalytics} onRefreshTrends={loadTrends} onRefreshMarket={loadMarketSignals} onCandidateSuitability={candidateSuitability} onRoleCandidates={roleCandidates} onShortlist={shortlist} />}{tab === 'links' && <PublicLinks links={links} candidates={candidates} demand={demand} onCreateLink={createLink} onRevokeLink={revokeLink} onRefresh={loadLinks} />}{tab === 'security' && <SecurityPanel security={security} onRefresh={loadSecurity} onChangePassword={changePassword} />}{tab === 'admin' && <><CompanyProfile profile={companyProfile} onSave={saveCompanyProfile} onUploadLogo={uploadCompanyLogo} /><Users users={users} onCreateUser={createUser} onUpdateUser={updateUser} onToggleUser={toggleUser} onUnlockUser={unlockUser} onResetPassword={resetUserPassword} onCreateDemo={createDemo} /><Logs logs={logs} /></>}<FooterNote /></main>{editing && <div className="modalBackdrop"><div className="modal"><div className="modalHeader"><h2>{editing.id ? 'Edit Candidate' : 'Add Candidate'}</h2><button onClick={() => setEditing(null)}>×</button></div><CandidateForm initial={editing} onCancel={() => setEditing(null)} onSave={saveCandidate} /></div></div>}{editingDemand && <div className="modalBackdrop"><div className="modal"><div className="modalHeader"><h2>{editingDemand.id ? 'Edit Demand' : 'Add Demand'}</h2><button onClick={() => setEditingDemand(null)}>×</button></div><DemandForm initial={editingDemand} onCancel={() => setEditingDemand(null)} onSave={saveDemand} /></div></div>}{selected && !editing && <CandidateDetail candidate={selected} user={user} onClose={() => setSelected(null)} onEdit={() => setEditing(selected)} onDelete={deleteCandidate} onAddAssessment={addAssessment} onRoleResumeUpload={uploadRoleResume} onDownload={downloadResume} onDownloadVersion={downloadVersion} onDownloadStandard={downloadStandardResume} />}{selectedDemand && !editingDemand && <DemandDetail demand={selectedDemand} matches={demandMatches} onClose={() => setSelectedDemand(null)} onEdit={() => setEditingDemand(selectedDemand)} onDelete={deleteDemand} onShortlist={shortlist} onRefreshMatches={() => loadSelectedDemand(selectedDemand.id)} onGenerateMcq={() => generateMcq(selectedDemand.id)} />}{toast && <div className="toast">{toast}</div>}</div>;
+  if (user.role === 'Admin') { nav.push(['outreach', '✉', 'Outreach']); nav.push(['security', '盾', 'Security']); nav.push(['admin', '⚙', 'Admin']); }
+  return <div className={`appShell ${collapsed ? 'collapsed' : ''}`}><aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}><div className="logo"><img src={brandLogo} alt="Truflux Technologies logo" className="logoImage" /><div><strong>{APP_NAME}</strong><small>{APP_SUBTITLE}</small></div></div><button className="collapseBtn" onClick={toggleMenu}>{collapsed ? '›' : '‹ Collapse'}</button><nav>{nav.map(([key, icon, label]) => <button key={key} title={label} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><span>{icon}</span><em>{label}</em></button>)}</nav><div className="sideFooter"><strong>{user.full_name}</strong><span>{user.role}</span><span className="sideMeta">Version {APP_VERSION}</span></div></aside><main><header className="topbar"><div><h1>{APP_NAME}</h1><p>{APP_SUBTITLE} · Bench planning, demand capture, candidate screening, resume rating, fake-resume risk and shortlist matching.</p></div><div className="topbarMeta"><span className="pill">Version {APP_VERSION}</span><button className="userTopChip" onClick={() => setTab('profile')} title="Open profile"><Avatar user={currentProfile || user} photoUrl={userPhotoUrl} /><span>{(currentProfile || user)?.full_name || user?.username}</span></button><button className="logoutIcon" onClick={logout} title="Logout" aria-label="Logout">⎋</button></div></header>{tab === 'dashboard' && <Dashboard dashboard={dashboard} onExport={exportCsv} />}{tab === 'profile' && <MyProfile user={currentProfile || user} photoUrl={userPhotoUrl} onSave={saveMyProfile} onUploadPhoto={uploadMyPhoto} />}{tab === 'demand' && <DemandPage demand={demand} filters={demandFilters} setFilters={setDemandFilters} onCreate={() => setEditingDemand(emptyDemand)} onSelect={loadSelectedDemand} />}{tab === 'candidates' && <Candidates candidates={candidates} filters={filters} setFilters={setFilters} onCreate={() => setEditing(emptyCandidate)} onSelect={loadSelected} onDownloadStandard={downloadStandardResume} />}{tab === 'intelligence' && <MLAnalytics analytics={analytics} trends={trends} marketSignals={marketSignals} candidates={candidates} demand={demand} onRefresh={loadAnalytics} onRefreshTrends={loadTrends} onRefreshMarket={loadMarketSignals} onCandidateSuitability={candidateSuitability} onRoleCandidates={roleCandidates} onShortlist={shortlist} />}{tab === 'links' && <PublicLinks links={links} candidates={candidates} demand={demand} onCreateLink={createLink} onRevokeLink={revokeLink} onRefresh={loadLinks} />}{tab === 'outreach' && <CustomerOutreach clients={outreachClients} appUsers={outreachUsers} logs={outreachLogs} onRefresh={loadOutreach} onSaveClient={savePotentialClient} onDeleteClient={deletePotentialClient} onSend={sendOutreachEmail} />}{tab === 'security' && <SecurityPanel security={security} onRefresh={loadSecurity} onChangePassword={changePassword} />}{tab === 'admin' && <><CompanyProfile profile={companyProfile} onSave={saveCompanyProfile} onUploadLogo={uploadCompanyLogo} /><Users users={users} onCreateUser={createUser} onUpdateUser={updateUser} onToggleUser={toggleUser} onUnlockUser={unlockUser} onResetPassword={resetUserPassword} onCreateDemo={createDemo} /><Logs logs={logs} /></>}<FooterNote /></main>{editing && <div className="modalBackdrop"><div className="modal"><div className="modalHeader"><h2>{editing.id ? 'Edit Candidate' : 'Add Candidate'}</h2><button onClick={() => setEditing(null)}>×</button></div><CandidateForm initial={editing} onCancel={() => setEditing(null)} onSave={saveCandidate} /></div></div>}{editingDemand && <div className="modalBackdrop"><div className="modal"><div className="modalHeader"><h2>{editingDemand.id ? 'Edit Demand' : 'Add Demand'}</h2><button onClick={() => setEditingDemand(null)}>×</button></div><DemandForm initial={editingDemand} onCancel={() => setEditingDemand(null)} onSave={saveDemand} /></div></div>}{selected && !editing && <CandidateDetail candidate={selected} user={user} onClose={() => setSelected(null)} onEdit={() => setEditing(selected)} onDelete={deleteCandidate} onAddAssessment={addAssessment} onRoleResumeUpload={uploadRoleResume} onDownload={downloadResume} onDownloadVersion={downloadVersion} onDownloadStandard={downloadStandardResume} />}{selectedDemand && !editingDemand && <DemandDetail demand={selectedDemand} matches={demandMatches} onClose={() => setSelectedDemand(null)} onEdit={() => setEditingDemand(selectedDemand)} onDelete={deleteDemand} onShortlist={shortlist} onRefreshMatches={() => loadSelectedDemand(selectedDemand.id)} onGenerateMcq={() => generateMcq(selectedDemand.id)} />}{toast && <div className="toast">{toast}</div>}</div>;
 }
 
 export default App;
