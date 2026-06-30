@@ -11,6 +11,9 @@ import sqlite3
 import smtplib
 import socket
 import uuid
+import base64
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
@@ -34,7 +37,7 @@ from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 APP_NAME = "1Resource"
-APP_VERSION = "Production 1.7"
+APP_VERSION = "Production 1.9"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
@@ -62,6 +65,12 @@ SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "").strip()
 SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL", SMTP_USERNAME).strip()
 SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "1Resource Team").strip()
 SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() not in {"0", "false", "no"}
+EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "smtp").strip().lower()
+MAILJET_API_KEY = os.environ.get("MAILJET_API_KEY", os.environ.get("MJ_APIKEY_PUBLIC", "")).strip()
+MAILJET_SECRET_KEY = os.environ.get("MAILJET_SECRET_KEY", os.environ.get("MJ_APIKEY_PRIVATE", "")).strip()
+EMAIL_FROM = os.environ.get("EMAIL_FROM", SMTP_FROM_EMAIL).strip()
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", SMTP_FROM_NAME).strip()
+MAILJET_SEND_URL = os.environ.get("MAILJET_SEND_URL", "https://api.mailjet.com/v3.1/send").strip()
 RATE_BUCKETS: Dict[str, List[float]] = {}
 
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -906,6 +915,29 @@ def friendly_smtp_error(exc: Exception) -> str:
     return raw[:500]
 
 
+def email_provider_status() -> Dict[str, Any]:
+    provider = EMAIL_PROVIDER or "smtp"
+    if provider in {"mailjet", "mailjet_api"}:
+        missing = []
+        if not MAILJET_API_KEY:
+            missing.append("MAILJET_API_KEY")
+        if not MAILJET_SECRET_KEY:
+            missing.append("MAILJET_SECRET_KEY")
+        if not EMAIL_FROM:
+            missing.append("EMAIL_FROM")
+        return {
+            "provider": "mailjet_api",
+            "configured": not missing,
+            "api_url": MAILJET_SEND_URL,
+            "from_email": EMAIL_FROM or "",
+            "from_name": EMAIL_FROM_NAME or "",
+            "has_api_key": bool(MAILJET_API_KEY),
+            "has_secret_key": bool(MAILJET_SECRET_KEY),
+            "missing": missing,
+        }
+    return smtp_config_status()
+
+
 def smtp_config_status() -> Dict[str, Any]:
     missing = []
     if not SMTP_HOST:
@@ -913,6 +945,7 @@ def smtp_config_status() -> Dict[str, Any]:
     if not SMTP_FROM_EMAIL:
         missing.append("SMTP_FROM_EMAIL")
     return {
+        "provider": "smtp",
         "configured": bool(SMTP_HOST and SMTP_FROM_EMAIL),
         "host": SMTP_HOST or "",
         "port": SMTP_PORT,
@@ -941,8 +974,89 @@ def test_smtp_connection() -> Dict[str, Any]:
         return {"ok": False, **status, "message": friendly_smtp_error(exc)}
 
 
-def send_outreach_email(recipient_email: str, subject: str, body: str) -> Tuple[str, str]:
-    """Send via SMTP when configured. If SMTP is not configured, log as queued instead of pretending to send."""
+def test_mailjet_api_connection() -> Dict[str, Any]:
+    status = email_provider_status()
+    if not status["configured"]:
+        return {"ok": False, **status, "message": f"Mailjet API is not configured. Missing: {', '.join(status['missing'])}"}
+    # Safe connectivity/auth test: hit the Send API with an empty Messages array and read the HTTP response.
+    payload = json.dumps({"Messages": []}).encode("utf-8")
+    auth_raw = f"{MAILJET_API_KEY}:{MAILJET_SECRET_KEY}".encode("utf-8")
+    req = urllib.request.Request(
+        MAILJET_SEND_URL,
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + base64.b64encode(auth_raw).decode("ascii"),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            _ = resp.read()
+            return {"ok": True, **status, "message": "Mailjet API HTTPS connection is reachable."}
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:500]
+        # 400/422 means HTTPS + auth path is reachable; request is intentionally empty.
+        if exc.code in {400, 422}:
+            return {"ok": True, **status, "message": "Mailjet API HTTPS connection is reachable. The test request was rejected as expected because it did not contain a real message."}
+        if exc.code in {401, 403}:
+            return {"ok": False, **status, "message": "Mailjet API reached, but authentication failed. Check MAILJET_API_KEY and MAILJET_SECRET_KEY."}
+        return {"ok": False, **status, "message": f"Mailjet API returned HTTP {exc.code}: {body}"}
+    except Exception as exc:
+        return {"ok": False, **status, "message": f"Mailjet API HTTPS connection failed: {str(exc)[:500]}"}
+
+
+def test_email_connection() -> Dict[str, Any]:
+    provider = EMAIL_PROVIDER or "smtp"
+    if provider in {"mailjet", "mailjet_api"}:
+        return test_mailjet_api_connection()
+    return test_smtp_connection()
+
+
+def send_mailjet_api_email(recipient_email: str, recipient_name: str, subject: str, body: str) -> Tuple[str, str]:
+    status = email_provider_status()
+    if not status["configured"]:
+        return "queued_mailjet_api_not_configured", f"Mailjet API not configured. Missing: {', '.join(status['missing'])}"
+
+    payload = {
+        "Messages": [{
+            "From": {"Email": EMAIL_FROM, "Name": EMAIL_FROM_NAME or "1Resource Team"},
+            "To": [{"Email": recipient_email, "Name": recipient_name or recipient_email}],
+            "Subject": subject,
+            "TextPart": body,
+        }]
+    }
+    auth_raw = f"{MAILJET_API_KEY}:{MAILJET_SECRET_KEY}".encode("utf-8")
+    req = urllib.request.Request(
+        MAILJET_SEND_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + base64.b64encode(auth_raw).decode("ascii"),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read().decode("utf-8", errors="replace")
+            if 200 <= resp.status < 300:
+                return "sent", ""
+            return "failed", f"Mailjet API returned HTTP {resp.status}: {data[:500]}"
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:700]
+        if exc.code in {401, 403}:
+            return "failed", "Mailjet API authentication failed. Check MAILJET_API_KEY and MAILJET_SECRET_KEY."
+        return "failed", f"Mailjet API returned HTTP {exc.code}: {body}"
+    except Exception as exc:
+        return "failed", f"Mailjet API send failed: {str(exc)[:700]}"
+
+
+def send_outreach_email(recipient_email: str, subject: str, body: str, recipient_name: str = "") -> Tuple[str, str]:
+    """Send through Mailjet API when configured, otherwise through SMTP. If not configured, log as queued."""
+    provider = EMAIL_PROVIDER or "smtp"
+    if provider in {"mailjet", "mailjet_api"}:
+        return send_mailjet_api_email(recipient_email, recipient_name, subject, body)
+
     if not smtp_is_configured():
         return "queued_smtp_not_configured", "SMTP not configured. Set SMTP_HOST, SMTP_PORT, SMTP_FROM_EMAIL and optional SMTP_USERNAME/SMTP_PASSWORD."
 
@@ -3333,12 +3447,12 @@ def list_outreach_logs(user: Dict[str, Any] = Depends(require_roles("Admin"))) -
 
 @app.get("/api/outreach/smtp-status")
 def outreach_smtp_status(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, Any]:
-    return smtp_config_status()
+    return email_provider_status()
 
 
 @app.post("/api/outreach/test-smtp")
 def outreach_test_smtp(user: Dict[str, Any] = Depends(require_roles("Admin"))) -> Dict[str, Any]:
-    result = test_smtp_connection()
+    result = test_email_connection()
     log_action(user["username"], "test_smtp_connection", "email_outreach", None, result.get("message", ""))
     return result
 
@@ -3387,11 +3501,11 @@ def send_customer_outreach(payload: OutreachEmailRequest, user: Dict[str, Any] =
         results = []
         for rec in recipients:
             recipient_email = validate_outreach_email(rec["recipient_email"])
-            status, error = send_outreach_email(recipient_email, subject, body)
+            status, error = send_outreach_email(recipient_email, subject, body, rec.get("recipient_name") or recipient_email)
             if status == "sent":
                 sent += 1
                 sent_at = now_iso()
-            elif status == "queued_smtp_not_configured":
+            elif status.startswith("queued"):
                 queued += 1
                 sent_at = None
             else:
@@ -3412,7 +3526,7 @@ def send_customer_outreach(payload: OutreachEmailRequest, user: Dict[str, Any] =
 
     log_action(user["username"], "send_customer_outreach", "email_outreach", None, f"type={email_type}; sent={sent}; queued={queued}; failed={failed}")
     if queued and not sent and not failed:
-        message = f"Prepared {queued} email(s). SMTP is not configured, so they were logged but not sent."
+        message = f"Prepared {queued} email(s). Email provider is not configured, so they were logged but not sent."
     else:
         message = f"Outreach completed: sent {sent}, queued {queued}, failed {failed}."
     return {"message": message, "sent": sent, "queued": queued, "failed": failed, "results": results}

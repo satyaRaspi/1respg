@@ -291,3 +291,57 @@ mark.neutral { background: #e2e8f0; color: #334155; }
 
 .smtpStatusBox { align-items: flex-start; }
 .smtpStatusBox span { word-break: break-word; }
+
+
+/* Production 1.9: logo homepage navigation and horizontal table scrolling */
+.logoButton {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.logoButton:hover {
+  transform: translateY(-1px);
+}
+.tableWrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+.tableWrap table {
+  min-width: max-content;
+}
+.tableWrap th,
+.tableWrap td {
+  white-space: nowrap;
+}
+.tableWrap td.wrapText,
+.tableWrap th.wrapText,
+.tableWrap .wrapText {
+  white-space: normal;
+}
+.panel,
+.pageBlock {
+  min-width: 0;
+}
+.outreachWorkspace,
+.twoCol,
+.statsGrid,
+.formGrid {
+  min-width: 0;
+}
+pre,
+code,
+.longText,
+.hintBox span,
+.insight {
+  overflow-x: auto;
+  white-space: nowrap;
+}
+textarea {
+  white-space: pre;
+  overflow-x: auto;
+}

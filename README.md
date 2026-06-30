@@ -390,3 +390,24 @@ For Railway, add a PostgreSQL service and link its `DATABASE_URL` to this applic
 - Improved SMTP error messages, especially DNS failures such as `[Errno -3] Temporary failure in name resolution`.
 - If SMTP_HOST cannot be resolved, the app now clearly instructs the Admin to check Railway Variables and provider SMTP hostname.
 - Outreach page now shows whether SMTP is configured and which host/port/from email are being used.
+
+
+## Production 1.8 Mailjet API Email Sending
+
+- Added Mailjet Send API v3.1 support over HTTPS.
+- This avoids Railway outbound SMTP port timeouts such as port 2525, 587 and 465.
+- Set `EMAIL_PROVIDER=mailjet_api` in Railway.
+- Required Mailjet API variables:
+  - `MAILJET_API_KEY`
+  - `MAILJET_SECRET_KEY`
+  - `EMAIL_FROM`
+  - `EMAIL_FROM_NAME`
+- Outreach page now tests the active email provider, not just SMTP.
+- SMTP support remains available for environments where SMTP ports are reachable.
+
+
+## Production 1.9 Logo Navigation and Horizontal Scroll Fix
+
+- Clicking the left-side 1Resource logo now takes the user back to the Dashboard/Home page.
+- Added horizontal scrolling for tables and dense content areas.
+- Table text no longer wraps by default, keeping columns readable with horizontal scroll.
