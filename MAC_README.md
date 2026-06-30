@@ -288,3 +288,11 @@ For Railway, add a PostgreSQL service and link its `DATABASE_URL` to this applic
 - Dockerfile now uses Railway's runtime `PORT` variable:
   `uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}`
 - Local Docker runs still default to port 8000 if `PORT` is not set.
+
+
+## Production 1.4 Demo Data Success Handling Fix
+
+- Fixed the Admin `Create 50 test data` action showing `failed` even when demo candidates and demand records were created.
+- Backend now returns a clean success response even if the non-critical audit-log insert fails after demo data has already been committed.
+- Frontend now separates demo-data creation from screen refreshes, so a refresh failure does not incorrectly mark data creation as failed.
+- If demo data is created but a dashboard refresh fails, the UI now shows a partial-refresh warning instead of a failed creation message.

@@ -4,8 +4,8 @@ import brandLogo from './assets/truflux_logo.png';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const APP_NAME = '1Resource';
 const APP_SUBTITLE = 'by Truflux Technologies';
-const APP_VERSION = 'Production 1.3';
-const APP_FOOTER = '1Resource by Truflux Technologies | Version Production 1.3.3.2 | © 2026 Truflux Technologies. All rights reserved. | Internal Use Only';
+const APP_VERSION = 'Production 1.4';
+const APP_FOOTER = '1Resource by Truflux Technologies | Version Production 1.4.4.3.2 | © 2026 Truflux Technologies. All rights reserved. | Internal Use Only';
 
 const emptyCandidate = {
   full_name: '', email: '', phone: '', location: '', current_status: 'Available', availability_date: 'Immediate', available_by_date: '', notice_period_days: 0,
@@ -852,7 +852,30 @@ function App() {
   async function downloadResume(id, fileName) { const res = await fetch(`${API_BASE}/api/candidates/${id}/download`, { headers: authHeaders(token) }); if (!res.ok) { show('Resume download failed'); return; } const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = fileName || 'resume'; a.click(); URL.revokeObjectURL(url); }
   async function downloadVersion(id, fileName) { const res = await fetch(`${API_BASE}/api/resumes/${id}/download`, { headers: authHeaders(token) }); if (!res.ok) { show('Resume version download failed'); return; } const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = fileName || 'resume'; a.click(); URL.revokeObjectURL(url); }
   async function downloadStandardResume(id, code) { const res = await fetch(`${API_BASE}/api/candidates/${id}/standard-resume`, { headers: authHeaders(token) }); if (!res.ok) { show('Standard resume download failed'); return; } const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${code || 'candidate'}_standard_resume.pdf`; a.click(); URL.revokeObjectURL(url); show('Formatted PDF resume created'); }
-  async function createDemo() { try { const res = await api('/api/demo-data?count=50', { method: 'POST' }, token); await loadCandidates(); await loadDemand(); await loadDashboard(); await loadAnalytics(); await loadTrends(); await loadMarketSignals(); show(res.message); } catch (err) { show(`Demo data failed: ${err.message}`); } }
+  async function createDemo() {
+    let res;
+    try {
+      res = await api('/api/demo-data?count=50', { method: 'POST' }, token);
+    } catch (err) {
+      show(`Demo data failed: ${err.message}`);
+      return;
+    }
+
+    const refreshes = await Promise.allSettled([
+      loadCandidates(),
+      loadDemand(),
+      loadDashboard(),
+      loadAnalytics(),
+      loadTrends(),
+      loadMarketSignals(),
+    ]);
+    const failedRefreshes = refreshes.filter(r => r.status === 'rejected').length;
+    if (failedRefreshes) {
+      show(`${res.message || 'Demo data created'}; ${failedRefreshes} screen refresh(es) need manual reload.`);
+      return;
+    }
+    show(res.message || 'Demo data created successfully');
+  }
   async function generateMcq(demandId) { const res = await api(`/api/demand/${demandId}/mcq/generate`, { method: 'POST' }, token); await loadSelectedDemand(demandId); show(res.message || 'MCQs generated'); }
   async function exportCsv() { const res = await fetch(`${API_BASE}/api/export/candidates.csv`, { headers: authHeaders(token) }); const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = '1resource_resume_bank.csv'; a.click(); URL.revokeObjectURL(url); }
   async function createUser(payload) { await api('/api/users', { method: 'POST', body: JSON.stringify(payload) }, token); await loadAdmin(); show('User created'); }

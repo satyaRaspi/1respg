@@ -31,7 +31,7 @@ from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 APP_NAME = "1Resource"
-APP_VERSION = "Production 1.3"
+APP_VERSION = "Production 1.4"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
@@ -3154,8 +3154,20 @@ Certification: Internal 1Resource screening ready.{risk_phrase}
             )
             demand_created += 1
         conn.commit()
-    log_action(user["username"], "create_50_demo_data", "candidate", None, f"created={created}; demand_created={demand_created}")
-    return {"created": created, "demand_created": demand_created, "message": f"Created {created} test candidate records and {demand_created} demand requests"}
+    audit_status = "logged"
+    try:
+        log_action(user["username"], "create_50_demo_data", "candidate", None, f"created={created}; demand_created={demand_created}")
+    except Exception as exc:
+        # Demo data creation has already been committed. Do not convert a successful seed into a failed API response
+        # only because the non-critical audit insert failed on a specific database runtime.
+        audit_status = f"audit_log_failed: {str(exc)[:180]}"
+    return {
+        "ok": True,
+        "created": created,
+        "demand_created": demand_created,
+        "audit_status": audit_status,
+        "message": f"Created {created} test candidate records and {demand_created} demand requests"
+    }
 
 
 # Serve React app if frontend has been built.
