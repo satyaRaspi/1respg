@@ -18,8 +18,8 @@ If `DATABASE_URL` is not set, the backend uses local SQLite.
 
 | Username | Password | Role |
 |---|---:|---|
-| Admin | admin123 | Admin |
-| Recruiter | recruiter123 | Recruiter |
+| Admin | [removed default credential] | Admin |
+| Recruiter | [removed default credential] | Recruiter |
 
 ## PostgreSQL setup
 
@@ -149,3 +149,25 @@ chmod +x clean_start_mac.sh
 - Clicking the left-side 1Resource logo now takes the user back to the Dashboard/Home page.
 - Added horizontal scrolling for tables and dense content areas.
 - Table text no longer wraps by default, keeping columns readable with horizontal scroll.
+
+
+## Production 1.10 Secure Admin Bootstrap
+
+- Removed automatic creation of default `Admin` and `Recruiter` users.
+- The app no longer ships with or pre-fills default login credentials.
+- For a fresh database, create the first Admin only through explicit deployment variables:
+  - `INITIAL_ADMIN_USERNAME`
+  - `INITIAL_ADMIN_PASSWORD`
+  - `INITIAL_ADMIN_FULL_NAME`
+  - `INITIAL_ADMIN_EMAIL`
+  - `INITIAL_ADMIN_PHONE`
+- If these variables are not set and the database has no users, the app starts normally but nobody can log in until an Admin is bootstrapped.
+- Existing users in an existing production database are not changed automatically.
+
+
+## Production 1.11 Default Users with Blank Login
+
+- Restored automatic creation of the default Admin and Recruiter users for setup/demo readiness.
+- Login page remains blank and does not pre-fill the Admin username or password.
+- Login page no longer displays default credentials.
+- Admin should change default passwords after first login.

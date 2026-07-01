@@ -4,8 +4,8 @@ import brandLogo from './assets/truflux_logo.png';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const APP_NAME = '1Resource';
 const APP_SUBTITLE = 'by Truflux Technologies';
-const APP_VERSION = 'Production 1.9';
-const APP_FOOTER = '1Resource by Truflux Technologies | Version Production 1.9 | © 2026 Truflux Technologies. All rights reserved. | Internal Use Only';
+const APP_VERSION = 'Production 1.11';
+const APP_FOOTER = '1Resource by Truflux Technologies | Version Production 1.11 | © 2026 Truflux Technologies. All rights reserved. | Internal Use Only';
 
 const emptyCandidate = {
   full_name: '', email: '', phone: '', location: '', current_status: 'Available', availability_date: 'Immediate', available_by_date: '', notice_period_days: 0,
@@ -259,8 +259,8 @@ function MCQGate({ questions, answers, setAnswers, onComplete, loading }) {
 
 
 function Login({ onLogin }) {
-  const [username, setUsername] = useState('Admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   async function submit(e) {
@@ -277,7 +277,7 @@ function Login({ onLogin }) {
       <label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} />
       {error && <div className="error">{error}</div>}
       <button className="primary" disabled={loading}>{loading ? 'Signing in...' : 'Sign in'}</button>
-    </form><small>Default: Admin / admin123 · Version {APP_VERSION}</small>
+    </form><small>Enter your username and password · Version {APP_VERSION}</small>
     <FooterNote centered />
   </div></div>;
 }
@@ -740,7 +740,7 @@ function Users({ users, onCreateUser, onUpdateUser, onToggleUser, onUnlockUser, 
 
     {resetTarget && <div className="panel compact resetPanel"><div className="sectionHeader small"><div><h3>Reset password for {resetTarget.username}</h3><p>The user will be logged out from active sessions after reset.</p></div><button onClick={() => setResetTarget(null)}>Cancel</button></div><div className="formGrid two"><Input label="New temporary password" type="password" value={resetForm.new_password} onChange={v => setResetForm({ ...resetForm, new_password: v })} /><label className="checkLine"><input type="checkbox" checked={resetForm.force_change} onChange={e => setResetForm({ ...resetForm, force_change: e.target.checked })} /> Force password change at next login</label></div><button className="primary" disabled={busy} onClick={submitReset}>{busy ? 'Please wait...' : 'Reset password'}</button></div>}
 
-    <div className="hintBox"><strong>Default recruiter profile</strong><span>Username: Recruiter | Password: recruiter123 | Authorized contact can be edited from this screen or by that user from Profile.</span></div>
+    <div className="hintBox"><strong>User security</strong><span>Default users are created for setup, but login credentials are not displayed or pre-filled on the login page. Admin should change default passwords after first login.</span></div>
 
     <div className="tableWrap"><table><thead><tr><th>User</th><th>Name</th><th>Login Contact</th><th>Role</th><th>Status</th><th>Security</th><th>Action</th></tr></thead><tbody>{users.map(u => <tr key={u.id}><td>{u.username}</td><td>{u.full_name}</td><td>{u.email || '-'}<br /><small>{u.phone || '-'}</small></td><td>{u.role}</td><td>{u.is_active ? 'Active' : 'Inactive'}<br /><small>{u.last_login_at ? `Last login ${new Date(u.last_login_at).toLocaleString()}` : 'No login yet'}</small></td><td>{u.locked_until ? <mark className="risk">Locked</mark> : <mark className="ok">Clear</mark>} {u.force_password_change ? <mark className="warning">Reset Required</mark> : null}<br /><small>{u.failed_attempts || 0} failed attempt(s)</small></td><td><button onClick={() => startEdit(u)}>Edit</button><button onClick={() => onToggleUser(u.id, u.is_active ? 0 : 1)}>{u.is_active ? 'Deactivate' : 'Activate'}</button><button onClick={() => { setResetTarget(u); setResetForm({ new_password: 'Welcome1234', force_change: true }); }}>Reset Password</button>{u.locked_until && <button onClick={() => onUnlockUser(u.id)}>Unlock</button>}</td></tr>)}</tbody></table></div>
   </section>;

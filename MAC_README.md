@@ -16,7 +16,7 @@ http://localhost:5173
 Default login:
 
 ```text
-Admin / admin123
+[removed default credential]
 ```
 
 ## Clean start
@@ -227,7 +227,7 @@ The app still includes all vProduction 1 features: demand-linked public upload l
 - Fixed Create User error messages so validation and backend errors are visible on the Admin screen.
 - Added default Recruiter profile for demos:
   - Username: Recruiter
-  - Password: recruiter123
+  - Password: [removed default credential]
   - Role: Recruiter
   - Authorized email: recruiter@truflux.ai
   - Authorized phone: +91 00000 00000
@@ -260,8 +260,8 @@ If `DATABASE_URL` is not set, the app continues to run with local SQLite for dem
 Default production/demo users:
 
 ```text
-Admin / admin123
-Recruiter / recruiter123
+[removed default credential]
+[removed default credential]
 ```
 
 For Railway, add a PostgreSQL service and link its `DATABASE_URL` to this application.
@@ -361,3 +361,25 @@ For Railway, add a PostgreSQL service and link its `DATABASE_URL` to this applic
 - Clicking the left-side 1Resource logo now takes the user back to the Dashboard/Home page.
 - Added horizontal scrolling for tables and dense content areas.
 - Table text no longer wraps by default, keeping columns readable with horizontal scroll.
+
+
+## Production 1.10 Secure Admin Bootstrap
+
+- Removed automatic creation of default `Admin` and `Recruiter` users.
+- The app no longer ships with or pre-fills default login credentials.
+- For a fresh database, create the first Admin only through explicit deployment variables:
+  - `INITIAL_ADMIN_USERNAME`
+  - `INITIAL_ADMIN_PASSWORD`
+  - `INITIAL_ADMIN_FULL_NAME`
+  - `INITIAL_ADMIN_EMAIL`
+  - `INITIAL_ADMIN_PHONE`
+- If these variables are not set and the database has no users, the app starts normally but nobody can log in until an Admin is bootstrapped.
+- Existing users in an existing production database are not changed automatically.
+
+
+## Production 1.11 Default Users with Blank Login
+
+- Restored automatic creation of the default Admin and Recruiter users for setup/demo readiness.
+- Login page remains blank and does not pre-fill the Admin username or password.
+- Login page no longer displays default credentials.
+- Admin should change default passwords after first login.
